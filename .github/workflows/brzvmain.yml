@@ -1,4 +1,4 @@
-name: Build Newifi3 D2 & NETGEAR-BZV
+name: Build Padavan Firmware (Newifi3 D2 & NETGEAR-BZV)
 
 on:
   workflow_dispatch:
@@ -38,9 +38,9 @@ jobs:
     - name: Checkout CI Scripts
       uses: actions/checkout@v4
 
-    # 设备型号和环境变量初始化
     - name: Initialize Environment Variables
       id: init
+      shell: bash
       run: |
         INPUT_DEVICE="${{ github.event.inputs.target_device }}"
         INPUT_VER="${{ github.event.inputs.target_version }}"
@@ -52,6 +52,8 @@ jobs:
             echo "TARGET_PROFILE=NETGEAR-BZV" >> $GITHUB_ENV
             echo "REPO_URL=https://github.com/chongshengB/rt-n56u.git" >> $GITHUB_ENV
             echo "REPO_BRANCH=master" >> $GITHUB_ENV
+            # 网件设备强制使用3.4内核
+            echo "KERNEL_VER=3.4" >> $GITHUB_ENV
             ;;
           *)
             echo "☑️ Default: Newifi3_D2"
@@ -61,10 +63,12 @@ jobs:
               *"4.4"*)
                 echo "REPO_URL=https://github.com/MeIsReallyBa/padavan-4.4.git" >> $GITHUB_ENV
                 echo "REPO_BRANCH=main" >> $GITHUB_ENV
+                echo "KERNEL_VER=4.4" >> $GITHUB_ENV
                 ;;
               *)
                 echo "REPO_URL=https://github.com/hanwckf/rt-n56u.git" >> $GITHUB_ENV
                 echo "REPO_BRANCH=master" >> $GITHUB_ENV
+                echo "KERNEL_VER=3.4" >> $GITHUB_ENV
                 ;;
             esac
             ;;
@@ -73,30 +77,25 @@ jobs:
         # 公共环境变量
         echo "BUILD_DATE=$(date +%Y%m%d)" >> $GITHUB_ENV
         echo "WORK_DIR=${{ github.workspace }}/padavan" >> $GITHUB_ENV
-        echo "KERNEL_VER=${INPUT_VER:0:3}" >> $GITHUB_ENV  # 提取版本号前3字符
 
-    # 拉取源码
     - name: Clone Source Code
       run: |
         echo "Cloning from ${{ env.REPO_URL }} (Branch: ${{ env.REPO_BRANCH }})..."
         git clone --depth=1 --branch ${{ env.REPO_BRANCH }} ${{ env.REPO_URL }} ${{ env.WORK_DIR }}
 
-    # 缓存工具链
     - name: Cache Toolchain
       id: cache-toolchain
       uses: actions/cache@v4
       with:
         path: ${{ env.WORK_DIR }}/toolchain
-        key: toolchain-${{ env.KERNEL_VER }}-${{ env.TARGET_PROFILE }}
+        key: toolchain-${{ env.KERNEL_VER }}-${{ env.TARGET_PROFILE }}-${{ hashFiles('**/toolchain.mk') }}
         
-    # 编译固件
     - name: Build Firmware
       run: |
         cd ${{ env.WORK_DIR }}
         ./clear_tree
         ./build_firmware ${{ env.TARGET_PROFILE }}
         
-    # 上传固件
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
