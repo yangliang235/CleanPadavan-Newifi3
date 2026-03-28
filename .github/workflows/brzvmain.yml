@@ -1,17 +1,24 @@
-name: Build Newifi3 D2 (Gemini 3 Pro) and NETGEAR-BZV
+name: Build Newifi3 D2 & NETGEAR-BZV
 
 on:
   workflow_dispatch:
     inputs:
+      target_device:
+        description: 'Select Device Model'
+        required: true
+        default: 'Newifi3_D2'
+        type: choice
+        options:
+          - 'Newifi3_D2'
+          - 'NETGEAR-BZV'
       target_version:
-        description: 'Select Kernel Version or Device'
+        description: 'Select Kernel Version'
         required: true
         default: '3.4'
         type: choice
         options:
           - '3.4 (Hanwckf + KVR)'
           - '4.4 (MeIsReallyBa)'
-          - 'NETGEAR-BZV (3.4内核)'
 
 permissions:
   contents: write
@@ -31,37 +38,67 @@ jobs:
     - name: Checkout CI Scripts
       uses: actions/checkout@v4
 
+    # 设备型号和环境变量初始化
     - name: Initialize Environment Variables
       id: init
       run: |
+        INPUT_DEVICE="${{ github.event.inputs.target_device }}"
         INPUT_VER="${{ github.event.inputs.target_version }}"
-        echo "User Input: $INPUT_VER"
-
-        case "$INPUT_VER" in
-          *"4.4"*)
-            echo "✅ Mode: Kernel 4.4 (MeIsReallyBa)"
-            echo "KERNEL_VER=4.4" >> $GITHUB_ENV
-            echo "REPO_URL=https://github.com/MeIsReallyBa/padavan-4.4.git" >> $GITHUB_ENV
-            echo "REPO_BRANCH=main" >> $GITHUB_ENV
-            echo "TARGET_PROFILE=NEWIFI" >> $GITHUB_ENV
-            ;;
-          *"NETGEAR-BZV"*)
-            echo "✅ Mode: NETGEAR-BZV (3.4内核)"
-            echo "KERNEL_VER=3.4" >> $GITHUB_ENV
+        
+        # 设备型号判断
+        case "$INPUT_DEVICE" in
+          "NETGEAR-BZV")
+            echo "✅ Building for NETGEAR-BZV"
+            echo "TARGET_PROFILE=NETGEAR-BZV" >> $GITHUB_ENV
             echo "REPO_URL=https://github.com/chongshengB/rt-n56u.git" >> $GITHUB_ENV
             echo "REPO_BRANCH=master" >> $GITHUB_ENV
-            echo "TARGET_PROFILE=NETGEAR-BZV" >> $GITHUB_ENV
             ;;
           *)
-            echo "☑️ Mode: Kernel 3.4 (Hanwckf)"
-            echo "KERNEL_VER=3.4" >> $GITHUB_ENV
-            echo "REPO_URL=https://github.com/hanwckf/rt-n56u.git" >> $GITHUB_ENV
-            echo "REPO_BRANCH=master" >> $GITHUB_ENV
+            echo "☑️ Default: Newifi3_D2"
             echo "TARGET_PROFILE=NEWIFI3" >> $GITHUB_ENV
+            # 内核版本判断
+            case "$INPUT_VER" in
+              *"4.4"*)
+                echo "REPO_URL=https://github.com/MeIsReallyBa/padavan-4.4.git" >> $GITHUB_ENV
+                echo "REPO_BRANCH=main" >> $GITHUB_ENV
+                ;;
+              *)
+                echo "REPO_URL=https://github.com/hanwckf/rt-n56u.git" >> $GITHUB_ENV
+                echo "REPO_BRANCH=master" >> $GITHUB_ENV
+                ;;
+            esac
             ;;
         esac
         
+        # 公共环境变量
         echo "BUILD_DATE=$(date +%Y%m%d)" >> $GITHUB_ENV
         echo "WORK_DIR=${{ github.workspace }}/padavan" >> $GITHUB_ENV
+        echo "KERNEL_VER=${INPUT_VER:0:3}" >> $GITHUB_ENV  # 提取版本号前3字符
 
-    # 其余步骤保持不变...
+    # 拉取源码
+    - name: Clone Source Code
+      run: |
+        echo "Cloning from ${{ env.REPO_URL }} (Branch: ${{ env.REPO_BRANCH }})..."
+        git clone --depth=1 --branch ${{ env.REPO_BRANCH }} ${{ env.REPO_URL }} ${{ env.WORK_DIR }}
+
+    # 缓存工具链
+    - name: Cache Toolchain
+      id: cache-toolchain
+      uses: actions/cache@v4
+      with:
+        path: ${{ env.WORK_DIR }}/toolchain
+        key: toolchain-${{ env.KERNEL_VER }}-${{ env.TARGET_PROFILE }}
+        
+    # 编译固件
+    - name: Build Firmware
+      run: |
+        cd ${{ env.WORK_DIR }}
+        ./clear_tree
+        ./build_firmware ${{ env.TARGET_PROFILE }}
+        
+    # 上传固件
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ env.TARGET_PROFILE }}-firmware
+        path: ${{ env.WORK_DIR }}/trunk/images/*.trx
